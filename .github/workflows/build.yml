@@ -1,0 +1,102 @@
+name: Mac Build and Release
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+  workflow_dispatch:
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        node-version: [18, 20]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build application
+      run: npm run build
+      env:
+        CI: true
+
+    - name: Build for Mac distribution
+      run: npm run build:mac
+      env:
+        CI: true
+
+    - name: Verify entitlements
+      run: |
+        echo "Checking entitlements file..."
+        if [ -f "build/entitlements.mac.plist" ]; then
+          echo "✅ Entitlements file exists"
+          cat build/entitlements.mac.plist
+        else
+          echo "❌ Entitlements file missing"
+          exit 1
+        fi
+        
+        echo "Checking Info.plist file..."
+        if [ -f "build/Info.plist" ]; then
+          echo "✅ Info.plist file exists"
+          cat build/Info.plist
+        else
+          echo "❌ Info.plist file missing"
+          exit 1
+        fi
+
+    - name: List build artifacts
+      run: |
+        echo "Build artifacts:"
+        find dist -name "*.dmg" -o -name "*.zip" -o -name "*.app" | head -10
+        echo "Universal binary info:"
+        find dist -name "*.app" -exec file {} \;
+
+    - name: Upload Mac artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: capmeet-mac-${{ matrix.node-version }}
+        path: |
+          dist/
+          out/
+        retention-days: 30
+
+  release:
+    needs: build-mac
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'published'
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Create Release Assets
+      run: |
+        mkdir -p release-assets
+        find artifacts -name "*.dmg" -o -name "*.zip" | while read file; do
+          cp "$file" release-assets/
+          echo "Added to release: $file"
+        done
+
+    - name: Upload Release Assets
+      uses: actions/upload-artifact@v4
+      with:
+        name: mac-release-assets
+        path: release-assets/
+        retention-days: 90 

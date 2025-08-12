@@ -1,0 +1,68 @@
+appId: com.capmeet.app
+productName: CapMeet
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!node_modules/electron-screen-recorder/**'  # Exclude this package
+  - '!node_modules/**/node_modules/**'  # Exclude nested node_modules
+asarUnpack:
+ - resources/**
+win:
+  executableName: CapMeet
+  icon: resources/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+mac:
+  target:
+    - target: dmg
+      arch:
+        - universal
+    - target: zip
+      arch:
+        - universal
+  category: public.app-category.productivity
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo: build/Info.plist
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  notarize: false
+  icon: resources/icon.png
+  artifactName: ${name}-${version}-universal.${ext}
+dmg:
+  artifactName: ${name}-${version}-universal.${ext}
+  sign: false
+linux:
+  target:
+    - AppImage
+    - snap
+    - deb
+  maintainer: capmeet@example.com
+  category: Utility
+  icon: resources/icon.png
+appImage:
+  artifactName: ${name}-${version}-${arch}.${ext}
+npmRebuild: false
+asar: true
+removePackageScripts: true
+removePackageKeywords: true
+publish:
+  provider: generic
+  url: https://example.com/auto-updates
+compression: maximum

@@ -1,0 +1,804 @@
+import { app, shell, BrowserWindow, ipcMain, session, systemPreferences, desktopCapturer, screen } from 'electron'
+import { join } from 'path'
+import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import icon from '../../resources/icon.png?asset'
+import fs from 'fs'
+import path from 'path'
+
+let recordingOverlayWindow = null;
+
+function createRecordingOverlayWindow() {
+  if (recordingOverlayWindow) {
+    return recordingOverlayWindow;
+  }
+
+  // Get primary display bounds
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+  
+  const overlayWidth = 180;
+  const overlayHeight = 60;
+  const x = Math.round((screenWidth - overlayWidth) / 2);
+  const y = Math.round(screenHeight - overlayHeight - 50); // 50px from bottom
+
+  recordingOverlayWindow = new BrowserWindow({
+    width: overlayWidth,
+    height: overlayHeight,
+    x: x,
+    y: y,
+    frame: false,
+   // transparent: true,
+    backgroundColor: '#000000',
+    alwaysOnTop: true,
+    resizable: false, 
+    skipTaskbar: true,
+    hasShadow: false,
+    autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: false,
+    title: 'CapMeet Recording',
+    icon: icon,
+    show: false,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false
+    }
+  });
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    recordingOverlayWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#/overlay`);
+  } else {
+    recordingOverlayWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: '/overlay' });
+  }
+
+  recordingOverlayWindow.setMovable(true);
+  recordingOverlayWindow.setAlwaysOnTop(true, 'screen-saver');
+  recordingOverlayWindow.setMenuBarVisibility(false);
+  recordingOverlayWindow.setMenu(null);
+
+  recordingOverlayWindow.on('closed', () => {
+    recordingOverlayWindow = null;
+  });
+
+  return recordingOverlayWindow;
+}
+
+// Disable problematic caches to fix access denied errors (from working reference app)
+app.commandLine.appendSwitch('--disable-gpu-cache');
+app.commandLine.appendSwitch('--disable-application-cache');
+app.commandLine.appendSwitch('--disable-offline-load-stale-cache');
+app.commandLine.appendSwitch('--disable-disk-cache');
+app.commandLine.appendSwitch('--disable-media-cache');
+app.commandLine.appendSwitch('--disable-http-cache');
+app.commandLine.appendSwitch('--disable-background-timer-throttling');
+app.commandLine.appendSwitch('--disable-renderer-backgrounding');
+app.commandLine.appendSwitch('--disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('--disable-features', 'TranslateUI');
+app.commandLine.appendSwitch('--disable-ipc-flooding-protection');
+
+// Additional cache fixes for Windows (from working reference app)
+app.commandLine.appendSwitch('--disable-gpu-sandbox');
+app.commandLine.appendSwitch('--disable-software-rasterizer');
+app.commandLine.appendSwitch('--disable-dev-shm-usage');
+app.commandLine.appendSwitch('--no-sandbox');
+app.commandLine.appendSwitch('--disable-web-security');
+app.commandLine.appendSwitch('--disable-features', 'VizDisplayCompositor');
+
+// Set custom cache directory to avoid permission issues (from working reference app)
+const userDataPath = app.getPath('userData');
+const cachePath = join(userDataPath, 'Cache');
+app.commandLine.appendSwitch('--disk-cache-dir', cachePath);
+app.commandLine.appendSwitch('--media-cache-dir', cachePath);
+
+function createWindow() {
+  const mainWindow = new BrowserWindow({
+    width: 460,
+    height: 700,
+    show: false,
+    frame: false, 
+    titleBarStyle: 'default', 
+    title: 'CapMeet',
+    icon: icon,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      enableWebContents: true,
+      webSecurity: true
+    }
+  })
+
+  mainWindow.on('ready-to-show', () => {
+    mainWindow.show()
+  })
+
+  mainWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  // HMR for renderer base on electron-vite cli.
+  // Load the remote URL for development or the local html file for production.
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  } else {
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+}
+
+// This method will be called when Electron has finished
+// initialization and is ready to create browser windows.
+// Some APIs can only be used after this event occurs.
+app.whenReady().then(() => {
+  // Clear cache to prevent access denied errors (from working reference app)
+  session.defaultSession.clearCache();
+  
+  // Set app user model id for windows
+  electronApp.setAppUserModelId('com.capmeet.app')
+
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    console.log('Permission requested:', permission);
+    
+    if (permission === 'microphone') {
+      console.log('Microphone permission requested - granting');
+      callback(true);
+    } else if (permission === 'media') {
+      console.log('Media permission requested - granting for microphone access');
+      callback(true);
+    } else if (['display-capture', 'desktop-capture'].includes(permission)) {
+      console.log('Screen capture permission requested - granting');
+      callback(true);
+    } else {
+      console.log('Denying permission:', permission);
+      callback(false);
+    }
+  });
+
+  // macOS-specific setup for microphone permissions
+  if (process.platform === 'darwin') {
+    console.log('Setting up macOS-specific permissions...');
+    
+    // Request microphone permissions using systemPreferences
+    systemPreferences.askForMediaAccess('microphone').then((granted) => {
+      console.log('Microphone permission granted:', granted);
+    }).catch((error) => {
+      console.error('Error requesting microphone permission:', error);
+    });
+    
+    // Request microphone permissions early
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      console.log('Permission requested:', permission);
+      
+      if (permission === 'microphone') {
+        console.log('Microphone permission requested - granting automatically');
+        callback(true);
+      } else if (permission === 'media') {
+        console.log('Media permission requested - granting for microphone access');
+        callback(true);
+      } else if (['display-capture', 'desktop-capture'].includes(permission)) {
+        console.log('Screen capture permission requested - granting');
+        callback(true);
+      } else {
+        console.log('Denying permission:', permission);
+        callback(false);
+      }
+    });
+  }
+
+  // Default open or close DevTools by F12 in development
+  // and ignore CommandOrControl + R in production.
+  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
+  app.on('browser-window-created', (_, window) => {
+    optimizer.watchWindowShortcuts(window)
+  })
+
+
+  // Window control handlers
+  ipcMain.handle('window-minimize', () => {
+    const window = BrowserWindow.getFocusedWindow()
+    if (window) {
+      window.minimize()
+    }
+  })
+
+  ipcMain.handle('window-close', () => {
+    const window = BrowserWindow.getFocusedWindow()
+    if (window) {
+      window.close()
+    }
+  })
+
+  // Get display sources handler
+  ipcMain.handle('get-display-sources', async () => {
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ['screen', 'window'],
+        thumbnailSize: { width: 0, height: 0 },
+        fetchWindowIcons: false
+      });
+      return sources;
+    } catch (error) {
+      console.error('Error getting display sources:', error);
+      throw error;
+    }
+  });
+
+
+
+  // File saving handler
+  ipcMain.on('save-recording', (event, { filePath, buffer }) => {
+    // Convert Uint8Array to Buffer for fs.writeFile
+    const bufferData = Buffer.from(buffer);
+    // i want to upload this file in s3 bucket i want to create function in RCservice.js i want to pass the file in the function
+    fs.writeFile(filePath, bufferData, (err) => {
+      if (err) {
+        console.error('Error saving file:', err)
+      } else {
+        console.log('Recording saved successfully:', filePath)
+      }
+    })
+  })
+
+  // Upload recording to S3 handler
+  ipcMain.handle('upload-recording-to-s3', async (event, { filePath, buffer, filename, authToken, contentType = 'video/webm' }) => {
+    try {
+      const bufferData = Buffer.from(buffer);
+      const fileSize = bufferData.length;
+      const fileSizeMB = fileSize / 1024 / 1024;
+      
+      console.log('Starting S3 upload process...', {
+        filename: filename,
+        fileSizeMB: fileSizeMB.toFixed(2),
+        bufferSize: fileSize,
+        hasAuthToken: !!authToken,
+        authTokenLength: authToken ? authToken.length : 0,
+        contentType: contentType
+      });
+
+      if (!authToken) {
+        throw new Error('No authentication token available. Please login first.');
+      }
+
+      // API base URL
+      const API_BASE_URL = 'https://api-dev-classcapsule.nfndev.com';
+      console.log('Using API base URL:', API_BASE_URL);
+
+      if (fileSizeMB < 10) {
+        // Small file - use regular upload
+        console.log('Using regular upload for small file');
+        return await uploadSmallFile(bufferData, filename, authToken, API_BASE_URL, contentType);
+      } else {
+        // Large file - use multipart upload
+        console.log('Using multipart upload for large file');
+        return await uploadLargeFile(bufferData, filename, authToken, API_BASE_URL, contentType);
+      }
+    } catch (error) {
+      console.error('S3 upload error:', error);
+      return { success: false, error: error.message };
+    }
+  })
+
+  // Helper function for small file upload
+  async function uploadSmallFile(buffer, filename, authToken, apiUrl, contentType = 'video/webm') {
+    try {
+      // Create FormData equivalent for Node.js
+      const FormData = require('form-data');
+      const formData = new FormData();
+      formData.append('file', buffer, {
+        filename: filename || `recording-${Date.now()}.webm`,
+        contentType: contentType || 'video/webm'
+      });
+
+      // Prepare headers
+      const headers = {
+        ...formData.getHeaders(),
+        'Authorization': `Bearer ${authToken}`
+      };
+
+      // Send to API
+      const https = require('https');
+      const http = require('http');
+      
+      const url = new URL(`${apiUrl}/recordings/upload`);
+      const client = url.protocol === 'https:' ? https : http;
+
+      const requestOptions = {
+        hostname: url.hostname,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        path: url.pathname,
+        method: 'POST',
+        headers: headers
+      };
+
+      return new Promise((resolve, reject) => {
+        const req = client.request(requestOptions, (res) => {
+          let data = '';
+          
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
+          
+          res.on('end', () => {
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              try {
+                const responseData = JSON.parse(data);
+                console.log('Upload successful:', responseData);
+                resolve({ success: true, data: responseData });
+              } catch (parseError) {
+                resolve({ success: true, data: { message: 'Upload successful' } });
+              }
+            } else {
+              let errorMessage = `Upload failed: ${res.statusCode}`;
+              if (res.statusCode === 401) {
+                errorMessage = 'Authentication failed: Invalid or expired token. Please login again.';
+              } else if (res.statusCode === 413) {
+                errorMessage = 'File too large for single upload. Please try again or contact support for large file uploads.';
+              } else if (res.statusCode === 500) {
+                errorMessage = 'Server error: Please try again later.';
+              } else {
+                errorMessage = `Upload failed: ${res.statusCode} ${res.statusMessage}`;
+              }
+              reject(new Error(errorMessage));
+            }
+          });
+        });
+
+        req.on('error', (error) => {
+          console.error('Upload error:', error);
+          reject(error);
+        });
+
+        req.on('timeout', () => {
+          req.destroy();
+          reject(new Error('Upload timeout'));
+        });
+
+        req.setTimeout(120000); // 2 minute timeout
+        formData.pipe(req);
+      });
+    } catch (error) {
+      console.error('Small file upload error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Helper function for large file upload
+  async function uploadLargeFile(buffer, filename, authToken, apiUrl, contentType = 'video/webm') {
+    try {
+      console.log('Attempting multipart upload for large file...');
+      
+      // Start multipart upload
+      const startResponse = await startMultipartUpload(filename, buffer.length, authToken, apiUrl, contentType);
+      const { uploadId } = startResponse.data;
+
+      // Generate presigned URLs
+      const presignedResponse = await generatePresignedUrls(filename, uploadId, buffer.length, authToken, apiUrl, contentType);
+      const presignedUrls = presignedResponse.data.presignedUrls;
+
+      // Upload parts
+      const parts = [];
+      const chunkSize = Math.ceil(buffer.length / presignedUrls.length);
+
+      for (let i = 0; i < presignedUrls.length; i++) {
+        const start = i * chunkSize;
+        const end = Math.min(start + chunkSize, buffer.length);
+        const chunk = buffer.slice(start, end);
+        const presignedUrl = presignedUrls[i];
+
+        console.log(`Uploading part ${i + 1}/${presignedUrls.length}`);
+
+        // Upload part with retry logic
+        const partResult = await uploadPartWithRetry(presignedUrl, chunk, contentType || 'video/webm', i + 1);
+        
+        parts.push({
+          etag: partResult.etag,
+          PartNumber: i + 1
+        });
+      }
+
+      // Complete multipart upload
+      const completeResponse = await completeMultipartUpload(filename, uploadId, parts, authToken, apiUrl, contentType);
+
+      console.log('Multipart upload completed:', completeResponse.data);
+      return { success: true, data: completeResponse.data };
+      
+    } catch (error) {
+      console.error('Large file upload error:', error);
+      
+      // For files just slightly over 10MB, try small file upload as fallback
+      const fileSizeMB = buffer.length / 1024 / 1024;
+      if (fileSizeMB < 15) { // If file is less than 15MB, try small file upload
+        console.log('Multipart upload failed, trying small file upload as fallback...');
+        try {
+          return await uploadSmallFile(buffer, filename, authToken, apiUrl);
+        } catch (fallbackError) {
+          console.error('Fallback small file upload also failed:', fallbackError);
+          return { success: false, error: `Multipart upload failed: ${error.message}. Fallback also failed: ${fallbackError.message}` };
+        }
+      }
+      
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Helper function to start multipart upload
+  async function startMultipartUpload(filename, fileSize, authToken, apiUrl, contentType = 'video/webm') {
+    const https = require('https');
+    const http = require('http');
+    
+    const url = new URL(`${apiUrl}/recordings/start-multipart-upload`);
+    const client = url.protocol === 'https:' ? https : http;
+
+    const requestData = JSON.stringify({
+      fileName: filename,
+      fileSize: fileSize,
+      contentType: contentType || 'video/webm'
+    });
+
+    const requestOptions = {
+      hostname: url.hostname,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Length': Buffer.byteLength(requestData)
+      }
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = client.request(requestOptions, (res) => {
+        let data = '';
+        
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        
+        res.on('end', () => {
+          console.log('Multipart upload response status:', res.statusCode);
+          console.log('Multipart upload response headers:', res.headers);
+          console.log('Multipart upload response data:', data);
+          
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              const responseData = JSON.parse(data);
+              console.log('Multipart upload started:', responseData);
+              resolve({ success: true, data: responseData });
+            } catch (parseError) {
+              console.error('Failed to parse multipart upload response:', parseError);
+              reject(new Error('Invalid response format'));
+            }
+          } else {
+            let errorMessage = `Failed to start multipart upload: ${res.statusCode}`;
+            if (res.statusCode === 401) {
+              errorMessage = 'Authentication failed: Invalid or expired token.';
+            } else if (res.statusCode === 502) {
+              errorMessage = 'Bad Gateway: Server is temporarily unavailable.';
+            } else if (res.statusCode === 500) {
+              errorMessage = 'Internal Server Error: Server encountered an error.';
+            }
+            console.error('Multipart upload failed with status:', res.statusCode, 'Response:', data);
+            reject(new Error(errorMessage));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('Start multipart upload error:', error);
+        reject(error);
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request timeout'));
+      });
+
+      req.setTimeout(30000); // 30 second timeout
+      req.write(requestData);
+      req.end();
+    });
+  }
+
+  // Helper function to generate presigned URLs
+  async function generatePresignedUrls(filename, uploadId, fileSize, authToken, apiUrl, contentType = 'video/webm') {
+    const https = require('https');
+    const http = require('http');
+    
+    const url = new URL(`${apiUrl}/recordings/generate-presigned-url`);
+    const client = url.protocol === 'https:' ? https : http;
+
+    const requestData = JSON.stringify({
+      fileName: filename,
+      uploadId: uploadId,
+      fileSize: fileSize
+    });
+
+    const requestOptions = {
+      hostname: url.hostname,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Length': Buffer.byteLength(requestData)
+      }
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = client.request(requestOptions, (res) => {
+        let data = '';
+        
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              const responseData = JSON.parse(data);
+              console.log('Presigned URLs generated:', responseData.presignedUrls?.length || 0);
+              resolve({ success: true, data: responseData });
+            } catch (parseError) {
+              reject(new Error('Invalid response format'));
+            }
+          } else {
+            let errorMessage = `Failed to generate presigned URLs: ${res.statusCode}`;
+            if (res.statusCode === 401) {
+              errorMessage = 'Authentication failed: Invalid or expired token.';
+            }
+            reject(new Error(errorMessage));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('Generate presigned URLs error:', error);
+        reject(error);
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request timeout'));
+      });
+
+      req.setTimeout(30000); // 30 second timeout
+      req.write(requestData);
+      req.end();
+    });
+  }
+
+  // Helper function to upload part with retry logic
+  async function uploadPartWithRetry(presignedUrl, chunk, contentType, partNumber, maxRetries = 3) {
+    const https = require('https');
+    const http = require('http');
+    
+    const url = new URL(presignedUrl);
+    const client = url.protocol === 'https:' ? https : http;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const requestOptions = {
+          hostname: url.hostname,
+          port: url.port || (url.protocol === 'https:' ? 443 : 80),
+          path: url.pathname + url.search,
+          method: 'PUT',
+          headers: {
+            'Content-Type': contentType,
+            'Content-Length': chunk.length
+          }
+        };
+
+        return new Promise((resolve, reject) => {
+          const req = client.request(requestOptions, (res) => {
+            let data = '';
+            
+            res.on('data', (chunk) => {
+              data += chunk;
+            });
+            
+            res.on('end', () => {
+              if (res.statusCode >= 200 && res.statusCode < 300) {
+                const etag = res.headers.etag;
+                if (!etag) {
+                  reject(new Error('Missing ETag in response'));
+                  return;
+                }
+                console.log(`Part ${partNumber} uploaded successfully`);
+                resolve({ success: true, etag: etag.replace(/"/g, '') });
+              } else {
+                reject(new Error(`Part upload failed: ${res.statusCode} ${res.statusMessage}`));
+              }
+            });
+          });
+
+          req.on('error', (error) => {
+            console.error(`Error uploading part ${partNumber} (attempt ${attempt}/${maxRetries}):`, error.message);
+            
+            if (attempt === maxRetries) {
+              reject(new Error(`Failed to upload part ${partNumber} after ${maxRetries} attempts`));
+            } else {
+              // Wait before retry with exponential backoff
+              setTimeout(() => {
+                req.destroy();
+                reject(error);
+              }, Math.pow(2, attempt) * 1000);
+            }
+          });
+
+          req.on('timeout', () => {
+            req.destroy();
+            reject(new Error('Part upload timeout'));
+          });
+
+          req.setTimeout(300000); // 5 minute timeout for large parts
+          req.write(chunk);
+          req.end();
+        });
+        
+      } catch (error) {
+        if (attempt === maxRetries) {
+          throw error;
+        }
+        // Wait before retry with exponential backoff
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+      }
+    }
+  }
+
+  // Helper function to complete multipart upload
+  async function completeMultipartUpload(filename, uploadId, parts, authToken, apiUrl, contentType = 'video/webm') {
+    const https = require('https');
+    const http = require('http');
+    
+    const url = new URL(`${apiUrl}/recordings/complete-multipart-upload`);
+    const client = url.protocol === 'https:' ? https : http;
+
+    const requestData = JSON.stringify({
+      fileName: filename,
+      uploadId: uploadId,
+      parts: parts.sort((a, b) => a.PartNumber - b.PartNumber)
+    });
+
+    const requestOptions = {
+      hostname: url.hostname,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Length': Buffer.byteLength(requestData)
+      }
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = client.request(requestOptions, (res) => {
+        let data = '';
+        
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              const responseData = JSON.parse(data);
+              console.log('Multipart upload completed:', responseData);
+              resolve({ success: true, data: responseData });
+            } catch (parseError) {
+              reject(new Error('Invalid response format'));
+            }
+          } else {
+            let errorMessage = `Failed to complete multipart upload: ${res.statusCode}`;
+            if (res.statusCode === 401) {
+              errorMessage = 'Authentication failed: Invalid or expired token.';
+            }
+            reject(new Error(errorMessage));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('Complete multipart upload error:', error);
+        reject(error);
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request timeout'));
+      });
+
+      req.setTimeout(30000); // 30 second timeout
+      req.write(requestData);
+      req.end();
+    });
+  }
+
+  // Recording overlay handlers
+  ipcMain.handle('show-recording-overlay', async () => {
+    try {
+      if (!recordingOverlayWindow) {
+        createRecordingOverlayWindow();
+      }
+      recordingOverlayWindow.show();
+      return true;
+    } catch (error) {
+      console.error('Error showing recording overlay:', error);
+      return false;
+    }
+  });
+
+  ipcMain.handle('hide-recording-overlay', async () => {
+    try {
+      if (recordingOverlayWindow) {
+        recordingOverlayWindow.hide();
+      }
+      return true;
+    } catch (error) {
+      console.error('Error hiding recording overlay:', error);
+      return false;
+    }
+  });
+
+
+
+  ipcMain.handle('stop-recording-from-overlay', async () => {
+    try {
+      // Send stop signal to main window
+      const windows = BrowserWindow.getAllWindows();
+      const mainWindow = windows.find(w => !w.isDestroyed() && w !== recordingOverlayWindow);
+      if (mainWindow) {
+        mainWindow.webContents.send('stop-recording-from-overlay');
+      }
+      
+      // Hide overlay
+      if (recordingOverlayWindow) {
+        recordingOverlayWindow.hide();
+      }
+      return true;
+    } catch (error) {
+      console.error('Error stopping recording from overlay:', error);
+      return false;
+    }
+  });
+
+  // Open external URL handler
+  ipcMain.handle('open-external-url', async (event, { url }) => {
+    try {
+      const { shell } = require('electron');
+      await shell.openExternal(url);
+      return { success: true };
+    } catch (error) {
+      console.error('Error opening external URL:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  createWindow()
+
+  app.on('activate', function () {
+    // On macOS it's common to re-create a window in the app when the
+    // dock icon is clicked and there are no other windows open.
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
+
+// Quit when all windows are closed, except on macOS. There, it's common
+// for applications and their menu bar to stay active until the user quits
+// explicitly with Cmd + Q.
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
+})
+
+// In this file you can include the rest of your app's specific main process
+// code. You can also put them in separate files and require them here.
