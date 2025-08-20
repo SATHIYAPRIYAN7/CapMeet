@@ -3,8 +3,6 @@ name: Mac Build and Release
 on:
   push:
     branches: [ main, develop ]
-  pull_request:
-    branches: [ main ]
   release:
     types: [ published ]
   workflow_dispatch:

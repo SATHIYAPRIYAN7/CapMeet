@@ -1,16 +1,45 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 
 export function useScreenRecorder({
   micEnabled,
   systemAudioEnabled,
-  audioOnly
+  audioOnly,
+  selectedScreenSource
 }) {
   const mediaRecorderRef = useRef(null);
   const chunks = useRef([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isMicMuted, setIsMicMuted] = useState(false);
   const micStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
+
+  // Listen for microphone mute state changes from overlay
+  useEffect(() => {
+    const handleMicrophoneMuteToggle = (event, { isMuted }) => {
+      setIsMicMuted(isMuted);
+      
+      // Apply mute state to microphone tracks in real-time
+      if (micStreamRef.current) {
+        micStreamRef.current.getAudioTracks().forEach(track => {
+          track.enabled = !isMuted;
+        });
+        console.log('Microphone tracks muted:', isMuted);
+      }
+    };
+
+    // Listen for mute state changes from main process
+    if (window.api && window.api.onMicrophoneMuteToggle) {
+      window.api.onMicrophoneMuteToggle(handleMicrophoneMuteToggle);
+    }
+
+    return () => {
+      // Cleanup listener if needed
+      if (window.api && window.api.removeMicrophoneMuteToggle) {
+        window.api.removeMicrophoneMuteToggle(handleMicrophoneMuteToggle);
+      }
+    };
+  }, []);
 
   // Background upload function (non-blocking)
   const uploadRecordingInBackground = async (filePath, buffer, filename, contentType) => {
@@ -314,6 +343,23 @@ export function useScreenRecorder({
       console.log('window.api available:', !!window.api);
       console.log('window.api.getDisplayMedia available:', !!(window.api && window.api.getDisplayMedia));
       
+      // Automatically unmute microphone when starting a new recording
+      if (isMicMuted) {  
+        setIsMicMuted(false);
+        
+        // Apply unmute state to microphone tracks in real-time
+        if (micStreamRef.current) {
+          micStreamRef.current.getAudioTracks().forEach(track => {
+            track.enabled = true;
+          });
+        }
+        
+        // Send unmute state to main process
+        if (window.api && window.api.toggleMicrophoneMute) {
+          window.api.toggleMicrophoneMute(false);
+        }
+      }
+      
       // Test microphone access first
       if (micEnabled) {
         console.log('Testing microphone access before recording...');
@@ -338,8 +384,20 @@ export function useScreenRecorder({
               const sources = await window.api.getDisplayMedia();
               if (sources && sources.length > 0) {
                 console.log('Using screen sources for system audio capture...');
-                const source = sources[0];
-                console.log('Selected source:', source.name);
+                
+                // Use selected source if available, otherwise use the first available source
+                let source;
+                if (selectedScreenSource) {
+                  source = sources.find(s => s.id === selectedScreenSource);
+                  if (!source) {
+                    console.warn('Selected source not found for audio-only, falling back to first available source');
+                    source = sources[0];
+                  }
+                } else {
+                  source = sources[0];
+                }
+                
+                console.log('Selected source for audio-only:', source.name);
                 
                 try {
                   // Try using getDisplayMedia first (same as video+audio mode)
@@ -596,10 +654,20 @@ export function useScreenRecorder({
             throw new Error('No screen sources available');
           }
 
-          // Use the first available source
-          console.log(sources, "sources")
-          const source = sources[0];
+          // Use selected source if available, otherwise use the first available source
+          let source;
+          if (selectedScreenSource) {
+            source = sources.find(s => s.id === selectedScreenSource);
+            if (!source) {
+              console.warn('Selected source not found, falling back to first available source');
+              source = sources[0];
+            }
+          } else {
+            source = sources[0];
+          }
+          
           console.log('Selected source:', source.name, source.id);
+          console.log('Available sources:', sources.map(s => ({ name: s.name, id: s.id, type: s.type })));
           
           // Get screen stream with system audio
           screenStreamRef.current = await navigator.mediaDevices.getUserMedia({
@@ -765,6 +833,7 @@ export function useScreenRecorder({
     stopRecording,
     isRecording,
     isUploading,
+    isMicMuted, // Expose the new state
     // Add microphone-only recording for testing
     startMicrophoneOnlyRecording: async () => {
       try {

@@ -6,6 +6,7 @@ import path from 'path'
 // Custom APIs for renderer
 const api = {
   minimizeWindow: () => ipcRenderer.invoke('window-minimize'),
+  maximizeWindow: () => ipcRenderer.invoke('window-maximize'),
   closeWindow: () => ipcRenderer.invoke('window-close'),
   getSources: () => ipcRenderer.invoke('get-sources'),
   startRecording: (options) => ipcRenderer.invoke('start-recording', options),
@@ -21,6 +22,22 @@ const api = {
   stopRecordingFromOverlay: () => ipcRenderer.invoke('stop-recording-from-overlay'),
   onStopRecordingFromOverlay: (callback) => {
     ipcRenderer.on('stop-recording-from-overlay', () => callback());
+  },
+  // Microphone control
+  toggleMicrophoneMute: (isMuted) => ipcRenderer.invoke('toggle-microphone-mute', { isMuted }),
+  getCurrentMicrophoneState: () => ipcRenderer.invoke('get-current-microphone-state'),
+  updateMicrophoneEnabled: (isEnabled) => ipcRenderer.invoke('update-microphone-enabled', { isEnabled }),
+  onMicrophoneMuteToggle: (callback) => {
+    ipcRenderer.on('microphone-mute-toggled', callback);
+  },
+  removeMicrophoneMuteToggle: (callback) => {
+    ipcRenderer.removeListener('microphone-mute-toggled', callback);
+  },
+  onMicrophoneEnabledUpdate: (callback) => {
+    ipcRenderer.on('microphone-enabled-updated', callback);
+  },
+  removeMicrophoneEnabledUpdate: (callback) => {
+    ipcRenderer.removeListener('microphone-enabled-updated', callback);
   },
   // Open external URL
   openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', { url })

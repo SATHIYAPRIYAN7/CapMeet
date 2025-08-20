@@ -18,6 +18,12 @@ function App() {
     return () => window.removeEventListener('storage', handleStorageChange)
   }, [authToken])
 
+  const [isMicMuted, setIsMicMuted] = useState(false)
+
+  useEffect(()=>{
+   console.log(isMicMuted, "isMicMuted")
+  },[isMicMuted])
+
   return (
     <HashRouter>
       <Routes>
@@ -25,11 +31,11 @@ function App() {
 
         <Route
           path="/recording-controls"
-          element={authToken ? <RCPage setAuthToken={setAuthToken} /> : <AuthPage setAuthToken={setAuthToken} />}
+          element={authToken ? <RCPage setAuthToken={setAuthToken} setIsMicMuted={setIsMicMuted} /> : <AuthPage setAuthToken={setAuthToken} />}
         />
         <Route
           path="/overlay"
-          element={<OverlayPage />}
+          element={<OverlayPage isMicMuted={isMicMuted} setIsMicMuted={setIsMicMuted} />}
         />
         <Route
           path="/"

@@ -5,7 +5,7 @@ export const useGetUser = (enabled) => {
   return useQuery({
     queryKey: ['getUser'],
     queryFn: async () => {
-      return await axiosInstance.get('/users/get-user')
+      return await axiosInstance.get('/users')
     },
     enabled,
   })

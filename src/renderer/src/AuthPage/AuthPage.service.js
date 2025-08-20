@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useSignup, useUserLogin } from './Authpage.query'
 import { useNavigate } from 'react-router-dom'
-import { toast } from 'react-toastify'
+import { toast } from 'sonner'
 
 const AuthPageService = ({ setAuthToken }) => {
   const navigate = useNavigate()
@@ -51,19 +51,10 @@ const AuthPageService = ({ setAuthToken }) => {
           }
         },
         onError: (err) => {
+          console.log("werewrwwerwerwerwerwerwerewrwer error")
+          toast.error(err?.response?.data?.message || 'Invalid credentials')
           // setLoginError(err?.response?.data?.message || 'Invalid credentials')
-          toast.error(err?.response?.data?.message || 'Invalid credentials',{
-            position: "bottom-center",
-            autoClose: 5000,
-            hideProgressBar: true,
-            closeOnClick: true,
-            pauseOnHover: true,
-            draggable: true,
-            progress: undefined,
-            theme: "light",
-            transition: Bounce,
-            })
-        }
+          }
       }
     )
   }

@@ -5,7 +5,33 @@ import icon from '../../resources/icon.png?asset'
 import fs from 'fs'
 import path from 'path'
 
+// Prevent multiple instances
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  console.log('Another instance is already running, quitting...');
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    console.log('Second instance attempted, bringing existing window to front...');
+    
+    // Find the main window and bring it to front
+    const windows = BrowserWindow.getAllWindows();
+    const mainWindow = windows.find(w => !w.isDestroyed() && w !== recordingOverlayWindow);
+    
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.focus();
+      mainWindow.show();
+    }
+  });
+}
+
 let recordingOverlayWindow = null;
+let currentMicrophoneMuted = false; // Track microphone state globally - start unmuted
+let currentMicrophoneEnabled = true; // Track if microphone is enabled (not disabled)
 
 function createRecordingOverlayWindow() {
   if (recordingOverlayWindow) {
@@ -16,9 +42,9 @@ function createRecordingOverlayWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
   
-  const overlayWidth = 180;
-  const overlayHeight = 60;
-  const x = Math.round((screenWidth - overlayWidth) / 2);
+  const overlayWidth = 60;
+  const overlayHeight = 200;
+  const x = screenWidth - overlayWidth; // Position at full right
   const y = Math.round(screenHeight - overlayHeight - 50); // 50px from bottom
 
   recordingOverlayWindow = new BrowserWindow({
@@ -33,18 +59,17 @@ function createRecordingOverlayWindow() {
     resizable: false, 
     skipTaskbar: true,
     hasShadow: false,
-    autoHideMenuBar: true,
     titleBarStyle: 'hidden',
     titleBarOverlay: false,
-    title: 'CapMeet Recording',
     icon: icon,
     show: false,
+     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       nodeIntegration: false,
       contextIsolation: true,
-      enableRemoteModule: false
+      enableRemoteModule: false,
     }
   });
 
@@ -66,42 +91,44 @@ function createRecordingOverlayWindow() {
   return recordingOverlayWindow;
 }
 
-// Disable problematic caches to fix access denied errors (from working reference app)
-app.commandLine.appendSwitch('--disable-gpu-cache');
-app.commandLine.appendSwitch('--disable-application-cache');
-app.commandLine.appendSwitch('--disable-offline-load-stale-cache');
-app.commandLine.appendSwitch('--disable-disk-cache');
-app.commandLine.appendSwitch('--disable-media-cache');
-app.commandLine.appendSwitch('--disable-http-cache');
-app.commandLine.appendSwitch('--disable-background-timer-throttling');
-app.commandLine.appendSwitch('--disable-renderer-backgrounding');
-app.commandLine.appendSwitch('--disable-backgrounding-occluded-windows');
-app.commandLine.appendSwitch('--disable-features', 'TranslateUI');
-app.commandLine.appendSwitch('--disable-ipc-flooding-protection');
+// // Only disable problematic GPU caches, keep application data intact
+// app.commandLine.appendSwitch('--disable-gpu-cache');
+// app.commandLine.appendSwitch('--disable-background-timer-throttling');
+// app.commandLine.appendSwitch('--disable-renderer-backgrounding');
+// app.commandLine.appendSwitch('--disable-backgrounding-occluded-windows');
+// app.commandLine.appendSwitch('--disable-features', 'TranslateUI');
+// app.commandLine.appendSwitch('--disable-ipc-flooding-protection');
 
-// Additional cache fixes for Windows (from working reference app)
-app.commandLine.appendSwitch('--disable-gpu-sandbox');
-app.commandLine.appendSwitch('--disable-software-rasterizer');
-app.commandLine.appendSwitch('--disable-dev-shm-usage');
-app.commandLine.appendSwitch('--no-sandbox');
-app.commandLine.appendSwitch('--disable-web-security');
-app.commandLine.appendSwitch('--disable-features', 'VizDisplayCompositor');
+// // Additional fixes for Windows (from working reference app)
+// app.commandLine.appendSwitch('--disable-gpu-sandbox');
+// app.commandLine.appendSwitch('--disable-software-rasterizer');
+// app.commandLine.appendSwitch('--disable-dev-shm-usage');
+// app.commandLine.appendSwitch('--no-sandbox');
 
-// Set custom cache directory to avoid permission issues (from working reference app)
-const userDataPath = app.getPath('userData');
-const cachePath = join(userDataPath, 'Cache');
-app.commandLine.appendSwitch('--disk-cache-dir', cachePath);
-app.commandLine.appendSwitch('--media-cache-dir', cachePath);
+// // Set custom cache directory to avoid permission issues (from working reference app)
+// const userDataPath = app.getPath('userData');
+// const cachePath = join(userDataPath, 'Cache');
+// app.commandLine.appendSwitch('--disk-cache-dir', cachePath);
+// app.commandLine.appendSwitch('--media-cache-dir', cachePath);
+
+// // Ensure persistent storage for local storage and cookies
+// app.commandLine.appendSwitch('--enable-features', 'PersistentStorage');
+// app.commandLine.appendSwitch('--enable-features', 'LocalStorage');
+// app.commandLine.appendSwitch('--enable-features', 'Cookies');
+
+const userDataPath = path.join(app.getPath('appData'), 'CapMeet'); // change 'MyElectronApp' to your app name
+app.setPath('userData', userDataPath);
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 460,
-    height: 700,
+    height: 690,
     show: false,
     frame: false, 
     titleBarStyle: 'default', 
     title: 'CapMeet',
     icon: icon,
+    resizable:false,
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -110,7 +137,8 @@ function createWindow() {
       contextIsolation: true,
       enableRemoteModule: false,
       enableWebContents: true,
-      webSecurity: true
+      webSecurity: true,
+      partition: 'persist:main'
     }
   })
 
@@ -136,11 +164,14 @@ function createWindow() {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
-  // Clear cache to prevent access denied errors (from working reference app)
-  session.defaultSession.clearCache();
-  
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.capmeet.app')
+
+  // Configure session for persistent storage
+  session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
+    // Ensure requests for local storage are not blocked
+    callback({});
+  });
 
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     console.log('Permission requested:', permission);
@@ -207,12 +238,79 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('window-maximize', () => {
+    const window = BrowserWindow.getFocusedWindow()
+    if (window) {
+      if (window.isMaximized()) {
+        window.unmaximize()
+      } else {
+        window.maximize()
+      }
+    }
+  })
+
   ipcMain.handle('window-close', () => {
     const window = BrowserWindow.getFocusedWindow()
     if (window) {
       window.close()
     }
   })
+
+  // Microphone mute control
+  ipcMain.handle('toggle-microphone-mute', (event, { isMuted }) => {
+    try {
+      // Update global microphone state
+      currentMicrophoneMuted = isMuted;
+      
+      // Send the mute state to all renderer processes
+      const windows = BrowserWindow.getAllWindows();
+      windows.forEach(window => {
+        if (!window.isDestroyed()) {
+          window.webContents.send('microphone-mute-toggled', { isMuted });
+        }
+      });
+      
+      console.log('Microphone mute state changed:', isMuted);
+      return { success: true, isMuted };
+    } catch (error) {
+      console.error('Error toggling microphone mute:', error);
+      return { success: false, error: error.message };
+    }
+  })
+
+  // Get current microphone state
+  ipcMain.handle('get-current-microphone-state', () => {
+    try {
+      console.log('Getting current microphone state:', currentMicrophoneMuted);
+      return { success: true, isMuted: currentMicrophoneMuted };
+    } catch (error) {
+      console.error('Error getting current microphone state:', error);
+      return { success: false, error: error.message };
+    }
+  })
+
+  // Update microphone enabled state
+  ipcMain.handle('update-microphone-enabled', (event, { isEnabled }) => {
+    try {
+      currentMicrophoneEnabled = isEnabled;
+      console.log('Microphone enabled state updated:', isEnabled);
+      
+      // Send the enabled state to all renderer processes
+      const windows = BrowserWindow.getAllWindows();
+      windows.forEach(window => {
+        if (!window.isDestroyed()) {
+          window.webContents.send('microphone-enabled-updated', { isEnabled });
+        }
+      });
+      
+      return { success: true, isEnabled };
+    } catch (error) {
+      console.error('Error updating microphone enabled state:', error);
+      return { success: false, error: error.message };
+    }
+  })
+
+
 
   // Get display sources handler
   ipcMain.handle('get-display-sources', async () => {
@@ -269,7 +367,7 @@ app.whenReady().then(() => {
       const API_BASE_URL = 'https://api-dev-classcapsule.nfndev.com';
       console.log('Using API base URL:', API_BASE_URL);
 
-      if (fileSizeMB < 10) {
+      if (fileSizeMB < 0) {
         // Small file - use regular upload
         console.log('Using regular upload for small file');
         return await uploadSmallFile(bufferData, filename, authToken, API_BASE_URL, contentType);
@@ -729,6 +827,18 @@ app.whenReady().then(() => {
         createRecordingOverlayWindow();
       }
       recordingOverlayWindow.show();
+      
+      // Send current microphone state to overlay window
+      if (recordingOverlayWindow && !recordingOverlayWindow.isDestroyed()) {
+        console.log('Sending microphone state to overlay window:', currentMicrophoneMuted);
+        recordingOverlayWindow.webContents.send('microphone-mute-toggled', { isMuted: currentMicrophoneMuted });
+        console.log('Sent current microphone state to overlay:', currentMicrophoneMuted);
+        
+        // Also send microphone enabled state
+        recordingOverlayWindow.webContents.send('microphone-enabled-updated', { isEnabled: currentMicrophoneEnabled });
+        console.log('Sent microphone enabled state to overlay:', currentMicrophoneEnabled);
+      }
+      
       return true;
     } catch (error) {
       console.error('Error showing recording overlay:', error);

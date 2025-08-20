@@ -1,8 +1,9 @@
 import { LogOut, Settings } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
 import capmeetLogo from '@/assets/capmeetLogo.png'
+import { DropdownMenuSeparator } from "@radix-ui/react-dropdown-menu";
 
-export const Header = ({handleLogout}) => {
+export const Header = ({handleLogout,userData}) => {
   
   return (
     <div className="flex items-center justify-between p-4">
@@ -15,11 +16,18 @@ export const Header = ({handleLogout}) => {
       </div>
       <DropdownMenu>
       <DropdownMenuTrigger asChild>
-      <Settings className="w-5 h-5 text-muted-foreground cursor-pointer hover:text-foreground transition-colors" />
+        <div className="h-8 w-8 bg-gray-200 rounded-full flex items-center justify-center font-semibold border border-gray-400 cursor-pointer">
+           {userData?.name[0] || ''}
+        </div>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-40 mr-6 group">
-        <DropdownMenuItem onClick={handleLogout} className="cursor-pointer hover:text-red-500 group-hover:bg-red-100 ">
-        <LogOut className="w-4 h-4 mr-1 group-hover:text-red-500" /> <span className="group-hover:text-red-500">Logout</span>
+      <DropdownMenuContent className="w-56 mr-6 group">
+      <DropdownMenuItem className="flex flex-col justify-start items-start pointer-events-none ">
+       <p className="text-sm font-semibold -mb-2">{userData?.name ||"UserName"}</p>
+       <p className="text-xs text-gray-400 font-light">{userData?.email || "Usermail@gmail.com"}</p>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator className="h-px bg-gray-300 mb-1" />
+        <DropdownMenuItem onClick={handleLogout} className="cursor-pointer hover:text-red-500 hover:bg-red-100 ">
+         <span className="hover:text-red-500 flex items-center gap-1.5"><LogOut className="w-4 h-4 mr-1 hover:text-red-500" /> Logout</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

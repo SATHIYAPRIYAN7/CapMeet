@@ -1,7 +1,7 @@
 /* eslint-disable no-undef */
 /* eslint-disable no-unused-vars */
 import { useState } from 'react'
-import { useGetLatestRecordings, } from './RC.query'
+import { useGetLatestRecordings, useGetUser, } from './RC.query'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'react-toastify'
 import axios from 'axios'
@@ -10,6 +10,8 @@ const RCService = () => {
   const navigate = useNavigate()
   const login = localStorage.getItem('token')
    const { data: getLatestRecordings,isLoading: isGetLatestRecordingsLoading, refetch: refetchLatestRecordings } = useGetLatestRecordings()
+   const { data: getUser, isLoading: isGetUserLoading, refetch: refetchUser } = useGetUser()
+
 
 
   const [isLoginPage, setIsLoginPage] = useState(true)
@@ -220,6 +222,8 @@ const RCService = () => {
     getLatestRecordings,
     isGetLatestRecordingsLoading,
     refetchLatestRecordings,
+    getUser,
+    refetchUser
   }
 }
 

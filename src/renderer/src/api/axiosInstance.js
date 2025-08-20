@@ -21,11 +21,14 @@ axiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {
     const isUnauth = error.response && (error.response.status === 401 || error.response.status === 403);
-    const isOnLoginPage = window.location.pathname === '/login';
+    
+    // Use hash-based route checking for Electron app compatibility
+    const isOnLoginPage = window.location.hash === '#/login';
 
     if (isUnauth && !isOnLoginPage) {
       localStorage.removeItem('authToken');
-      window.location.href = '/login';
+      // Use hash-based navigation for Electron app compatibility
+      window.location.hash = '#/login';
     }
 
     return Promise.reject(error);
