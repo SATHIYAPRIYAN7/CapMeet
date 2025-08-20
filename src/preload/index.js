@@ -27,6 +27,8 @@ const api = {
   toggleMicrophoneMute: (isMuted) => ipcRenderer.invoke('toggle-microphone-mute', { isMuted }),
   getCurrentMicrophoneState: () => ipcRenderer.invoke('get-current-microphone-state'),
   updateMicrophoneEnabled: (isEnabled) => ipcRenderer.invoke('update-microphone-enabled', { isEnabled }),
+  checkMicrophonePermission: () => ipcRenderer.invoke('check-microphone-permission'),
+  requestMicrophonePermission: () => ipcRenderer.invoke('request-microphone-permission'),
   onMicrophoneMuteToggle: (callback) => {
     ipcRenderer.on('microphone-mute-toggled', callback);
   },

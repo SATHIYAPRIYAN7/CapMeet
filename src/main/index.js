@@ -173,12 +173,55 @@ app.whenReady().then(() => {
     callback({});
   });
 
+  // macOS-specific setup for microphone permissions
+  if (process.platform === 'darwin') {
+    console.log('Setting up macOS-specific permissions...');
+    
+    // Check current microphone permission status
+    const micPermission = systemPreferences.getMediaAccessStatus('microphone');
+    console.log('Current microphone permission status:', micPermission);
+    
+    // Request microphone permissions using systemPreferences if not already granted
+    if (micPermission !== 'granted') {
+      systemPreferences.askForMediaAccess('microphone').then((granted) => {
+        console.log('Microphone permission requested and granted:', granted);
+        
+        // Store the permission status for future use
+        if (granted) {
+          // Set a flag to remember permission was granted
+          global.microphonePermissionGranted = true;
+        }
+      }).catch((error) => {
+        console.error('Error requesting microphone permission:', error);
+      });
+    } else {
+      console.log('Microphone permission already granted');
+      global.microphonePermissionGranted = true;
+    }
+  }
+
+  // Set permission request handler (only once)
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     console.log('Permission requested:', permission);
     
     if (permission === 'microphone') {
+      // Check if we already have permission or if it was previously granted
+      if (process.platform === 'darwin') {
+        const micPermission = systemPreferences.getMediaAccessStatus('microphone');
+        if (micPermission === 'granted' || global.microphonePermissionGranted) {
+          console.log('Microphone permission already granted - allowing access');
+          callback(true);
+          return;
+        }
+      }
+      
       console.log('Microphone permission requested - granting');
       callback(true);
+      
+      // Mark as granted for future requests
+      if (process.platform === 'darwin') {
+        global.microphonePermissionGranted = true;
+      }
     } else if (permission === 'media') {
       console.log('Media permission requested - granting for microphone access');
       callback(true);
@@ -190,37 +233,6 @@ app.whenReady().then(() => {
       callback(false);
     }
   });
-
-  // macOS-specific setup for microphone permissions
-  if (process.platform === 'darwin') {
-    console.log('Setting up macOS-specific permissions...');
-    
-    // Request microphone permissions using systemPreferences
-    systemPreferences.askForMediaAccess('microphone').then((granted) => {
-      console.log('Microphone permission granted:', granted);
-    }).catch((error) => {
-      console.error('Error requesting microphone permission:', error);
-    });
-    
-    // Request microphone permissions early
-    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-      console.log('Permission requested:', permission);
-      
-      if (permission === 'microphone') {
-        console.log('Microphone permission requested - granting automatically');
-        callback(true);
-      } else if (permission === 'media') {
-        console.log('Media permission requested - granting for microphone access');
-        callback(true);
-      } else if (['display-capture', 'desktop-capture'].includes(permission)) {
-        console.log('Screen capture permission requested - granting');
-        callback(true);
-      } else {
-        console.log('Denying permission:', permission);
-        callback(false);
-      }
-    });
-  }
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -324,6 +336,70 @@ app.whenReady().then(() => {
     } catch (error) {
       console.error('Error getting display sources:', error);
       throw error;
+    }
+  });
+
+  // Check microphone permission status
+  ipcMain.handle('check-microphone-permission', () => {
+    try {
+      if (process.platform === 'darwin') {
+        const micPermission = systemPreferences.getMediaAccessStatus('microphone');
+        console.log('Microphone permission status checked:', micPermission);
+        return {
+          status: micPermission,
+          isGranted: micPermission === 'granted',
+          platform: 'darwin'
+        };
+      } else {
+        // For other platforms, return a default status
+        return {
+          status: 'unknown',
+          isGranted: false,
+          platform: process.platform
+        };
+      }
+    } catch (error) {
+      console.error('Error checking microphone permission:', error);
+      return {
+        status: 'error',
+        isGranted: false,
+        error: error.message,
+        platform: process.platform
+      };
+    }
+  });
+
+  // Request microphone permission explicitly
+  ipcMain.handle('request-microphone-permission', async () => {
+    try {
+      if (process.platform === 'darwin') {
+        console.log('Requesting microphone permission explicitly...');
+        const granted = await systemPreferences.askForMediaAccess('microphone');
+        console.log('Microphone permission request result:', granted);
+        
+        if (granted) {
+          global.microphonePermissionGranted = true;
+        }
+        
+        return {
+          success: true,
+          granted,
+          status: systemPreferences.getMediaAccessStatus('microphone')
+        };
+      } else {
+        return {
+          success: false,
+          granted: false,
+          error: 'Permission request only supported on macOS'
+        };
+      }
+    } catch (error) {
+      console.error('Error requesting microphone permission:', error);
+      return {
+        success: false,
+        granted: false,
+        error: error.message
+      };
     }
   });
 

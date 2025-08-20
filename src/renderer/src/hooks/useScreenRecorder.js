@@ -400,18 +400,41 @@ export function useScreenRecorder({
                 console.log('Selected source for audio-only:', source.name);
                 
                 try {
-                  // Try using getDisplayMedia first (same as video+audio mode)
-                  screenStreamRef.current = await navigator.mediaDevices.getDisplayMedia({
-                    video: {
-                      width: { ideal: 1280, max: 1920 },
-                      height: { ideal: 720, max: 1080 },
-                      frameRate: { ideal: 24, max: 30 }
-                    },
-                    audio: systemAudioEnabled
-                  });
-                  console.log('Using getDisplayMedia successfully for audio-only');
+                  // Use our custom API that goes through main process
+                  if (window.api && window.api.getDisplayMedia) {
+                    const sources = await window.api.getDisplayMedia();
+                    if (sources && sources.length > 0) {
+                      const source = sources[0]; // Use first available source
+                      console.log('Using custom API for audio-only with source:', source.name);
+                      
+                      // Get screen stream with system audio using getUserMedia
+                      screenStreamRef.current = await navigator.mediaDevices.getUserMedia({
+                        audio: systemAudioEnabled ? {
+                          mandatory: {
+                            chromeMediaSource: 'desktop',
+                            chromeMediaSourceId: source.id
+                          }
+                        } : false,
+                        video: {
+                          mandatory: {
+                            chromeMediaSource: 'desktop',
+                            chromeMediaSourceId: source.id,
+                            minWidth: 1,
+                            maxWidth: 1,
+                            minHeight: 1,
+                            maxHeight: 1
+                          }
+                        }
+                      });
+                      console.log('Using custom API successfully for audio-only');
+                    } else {
+                      throw new Error('No screen sources available');
+                    }
+                  } else {
+                    throw new Error('Custom API not available');
+                  }
                 } catch (displayMediaError) {
-                  console.log('getDisplayMedia failed, trying getUserMedia with source ID');
+                  console.log('Custom API failed, trying getUserMedia with source ID');
                   
                   // Fallback to getUserMedia with source ID (same as video+audio mode)
                   screenStreamRef.current = await navigator.mediaDevices.getUserMedia({
@@ -457,23 +480,67 @@ export function useScreenRecorder({
                 ];
                 
                 let success = false;
-                for (let i = 0; i < approaches.length; i++) {
-                  try {
-                    console.log(`Trying system audio approach ${i + 1}...`);
-                    screenStreamRef.current = await navigator.mediaDevices.getDisplayMedia(approaches[i]);
-                    
-                    if (screenStreamRef.current && screenStreamRef.current.getAudioTracks().length > 0) {
-                      console.log(`System audio access granted with approach ${i + 1}`);
-                      console.log('System audio tracks:', screenStreamRef.current.getAudioTracks().length);
-                      success = true;
-                      break;
+                // Try to get sources through our custom API first
+                try {
+                  if (window.api && window.api.getDisplayMedia) {
+                    const sources = await window.api.getDisplayMedia();
+                    if (sources && sources.length > 0) {
+                      const source = sources[0];
+                      console.log('Using custom API for system audio with source:', source.name);
+                      
+                      // Get screen stream with system audio using getUserMedia
+                      screenStreamRef.current = await navigator.mediaDevices.getUserMedia({
+                        audio: true,
+                        video: {
+                          mandatory: {
+                            chromeMediaSource: 'desktop',
+                            chromeMediaSourceId: source.id,
+                            minWidth: 1,
+                            maxWidth: 1,
+                            minHeight: 1,
+                            maxHeight: 1
+                          }
+                        }
+                      });
+                      
+                      if (screenStreamRef.current && screenStreamRef.current.getAudioTracks().length > 0) {
+                        console.log('System audio access granted with custom API');
+                        console.log('System audio tracks:', screenStreamRef.current.getAudioTracks().length);
+                        success = true;
+                      } else {
+                        console.warn('Custom API failed - no audio tracks');
+                        screenStreamRef.current = null;
+                      }
                     } else {
-                      console.warn(`Approach ${i + 1} failed - no audio tracks`);
+                      throw new Error('No screen sources available');
+                    }
+                  } else {
+                    throw new Error('Custom API not available');
+                  }
+                } catch (apiError) {
+                  console.warn('Custom API failed, trying fallback approaches:', apiError.message);
+                  
+                  // Fallback to multiple approaches if custom API fails
+                  for (let i = 0; i < approaches.length; i++) {
+                    try {
+                      console.log(`Trying fallback approach ${i + 1}...`);
+                      // This fallback approach is no longer needed since we're using custom API
+                      // screenStreamRef.current = await navigator.mediaDevices.getDisplayMedia(approaches[i]);
+                      console.log(`Fallback approach ${i + 1} skipped - using custom API instead`);
+                      
+                      if (screenStreamRef.current && screenStreamRef.current.getAudioTracks().length > 0) {
+                        console.log(`System audio access granted with fallback approach ${i + 1}`);
+                        console.log('System audio tracks:', screenStreamRef.current.getAudioTracks().length);
+                        success = true;
+                        break;
+                      } else {
+                        console.warn(`Fallback approach ${i + 1} failed - no audio tracks`);
+                        screenStreamRef.current = null;
+                      }
+                    } catch (approachError) {
+                      console.warn(`Fallback approach ${i + 1} failed:`, approachError.message);
                       screenStreamRef.current = null;
                     }
-                  } catch (approachError) {
-                    console.warn(`Approach ${i + 1} failed:`, approachError.message);
-                    screenStreamRef.current = null;
                   }
                 }
                 
@@ -483,7 +550,7 @@ export function useScreenRecorder({
                 }
               }
             } else {
-              console.warn('getDisplayMedia API not available');
+              console.warn('Custom screen capture API not available');
             }
           } catch (screenError) {
             console.warn('System audio access denied for audio-only recording:', screenError);
@@ -511,28 +578,56 @@ export function useScreenRecorder({
               video: false
             };
             
-            // For macOS, try a more permissive approach (same as working reference app)
-            if (navigator.platform === 'MacIntel' || navigator.platform === 'MacPPC') {
-              console.log('macOS detected - using enhanced microphone access');
-              
-              // First try to get microphone access directly
+            // Check microphone permission and get access
+            if (window.api && window.api.checkMicrophonePermission) {
               try {
-                micStreamRef.current = await navigator.mediaDevices.getUserMedia(micConstraints);
-                console.log('Microphone access granted successfully on macOS');
-              } catch (directError) {
-                console.log('Direct microphone access failed, trying alternative approach:', directError.message);
+                const permissionStatus = await window.api.checkMicrophonePermission();
+                const isMacOS = permissionStatus.platform === 'darwin';
                 
-                // Try with more basic constraints
-                micStreamRef.current = await navigator.mediaDevices.getUserMedia({
-                  audio: true,
-                  video: false
-                });
-                console.log('Microphone access granted with basic constraints on macOS');
+                if (isMacOS) {
+                  console.log('macOS detected - checking microphone permission first');
+                  
+                  // Check permission status before requesting access
+                  if (!permissionStatus.isGranted) {
+                    console.log('Microphone permission not granted, requesting access...');
+                    // Try to request permission explicitly
+                    try {
+                      const requestResult = await window.api.requestMicrophonePermission();
+                      console.log('Permission request result:', requestResult);
+                    } catch (reqError) {
+                      console.log('Could not request permission explicitly:', reqError.message);
+                    }
+                  }
+                  
+                  // Try to get microphone access
+                  try {
+                    micStreamRef.current = await navigator.mediaDevices.getUserMedia(micConstraints);
+                    console.log('Microphone access granted successfully on macOS');
+                  } catch (directError) {
+                    console.log('Direct microphone access failed, trying alternative approach:', directError.message);
+                    
+                    // Try with more basic constraints
+                    micStreamRef.current = await navigator.mediaDevices.getUserMedia({
+                      audio: true,
+                      video: false
+                    });
+                    console.log('Microphone access granted with basic constraints on macOS');
+                  }
+                } else {
+                  // For other platforms, use standard approach
+                  micStreamRef.current = await navigator.mediaDevices.getUserMedia(micConstraints);
+                  console.log('Microphone access granted successfully');
+                }
+              } catch (permError) {
+                console.log('Could not check permission status, using fallback approach:', permError.message);
+                // Fallback to standard approach
+                micStreamRef.current = await navigator.mediaDevices.getUserMedia(micConstraints);
+                console.log('Microphone access granted with fallback approach');
               }
             } else {
-              // For other platforms, use standard approach
+              // No custom API available, use standard approach
               micStreamRef.current = await navigator.mediaDevices.getUserMedia(micConstraints);
-              console.log('Microphone access granted successfully');
+              console.log('Microphone access granted with standard approach');
             }
             
             // Verify microphone access
@@ -547,7 +642,18 @@ export function useScreenRecorder({
             
             // Enhanced error messages for macOS (same as working reference app)
             if (micError.name === 'NotAllowedError') {
-              if (navigator.platform === 'MacIntel' || navigator.platform === 'MacPPC') {
+              // Check if we're on macOS using our API
+              let isMacOS = false;
+              if (window.api && window.api.checkMicrophonePermission) {
+                try {
+                  const permissionStatus = await window.api.checkMicrophonePermission();
+                  isMacOS = permissionStatus.platform === 'darwin';
+                } catch (permError) {
+                  console.log('Could not determine platform for error message:', permError.message);
+                }
+              }
+              
+              if (isMacOS) {
                 throw new Error('Microphone access denied on macOS. Please:\n1. Go to System Preferences > Security & Privacy > Privacy > Microphone\n2. Add "ClassCapsule Recorder" to the list\n3. Check the box next to the app\n4. Restart the app completely');
               } else {
                 throw new Error('Microphone access denied. Please grant microphone permission and restart the app.');
