@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 export default function useAudioActivity(threshold = 0.05) {
   const [isMicActive, setIsMicActive] = useState(false);
   const [isSystemActive, setIsSystemActive] = useState(false);
+  const [hasMicrophonePermission, setHasMicrophonePermission] = useState(false);
 
   useEffect(() => {
     let micStream = null;
@@ -13,13 +14,35 @@ export default function useAudioActivity(threshold = 0.05) {
 
     async function setup() {
       try {
-        // 🎤 Microphone stream
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const micCtx = new AudioContext();
-        const micSource = micCtx.createMediaStreamSource(micStream);
-        micAnalyzer = micCtx.createAnalyser();
-        micAnalyzer.fftSize = 256;
-        micSource.connect(micAnalyzer);
+        // Check microphone permission first before requesting access
+        if (window.api && window.api.checkMicrophonePermission) {
+          try {
+            const permissionStatus = await window.api.checkMicrophonePermission();
+            console.log('Microphone permission status:', permissionStatus);
+            
+            if (permissionStatus.isGranted) {
+              setHasMicrophonePermission(true);
+              
+              // 🎤 Microphone stream - only request if we have permission
+              micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+              const micCtx = new AudioContext();
+              const micSource = micCtx.createMediaStreamSource(micStream);
+              micAnalyzer = micCtx.createAnalyser();
+              micAnalyzer.fftSize = 256;
+              micSource.connect(micAnalyzer);
+              console.log('Microphone stream setup successful');
+            } else {
+              console.log('Microphone permission not granted, skipping microphone setup');
+              setHasMicrophonePermission(false);
+            }
+          } catch (permError) {
+            console.log('Could not check microphone permission, skipping microphone setup:', permError.message);
+            setHasMicrophonePermission(false);
+          }
+        } else {
+          console.log('Microphone permission API not available, skipping microphone setup');
+          setHasMicrophonePermission(false);
+        }
 
         // 💻 System/desktop stream (with fallback)
         try {
@@ -46,17 +69,21 @@ export default function useAudioActivity(threshold = 0.05) {
           systemAnalyzer = null; // Ensure it's null
         }
 
-        const micData = new Uint8Array(micAnalyzer.frequencyBinCount);
+        const micData = micAnalyzer ? new Uint8Array(micAnalyzer.frequencyBinCount) : null;
         const sysData = systemAnalyzer ? new Uint8Array(systemAnalyzer.frequencyBinCount) : null;
 
         function detect() {
-          // Always get microphone data
-          micAnalyzer.getByteFrequencyData(micData);
-          
-          // Calculate microphone volume (0-1)
-          const micVolume = micData.reduce((a, b) => a + b, 0) / micData.length / 255;
-          const micActive = micVolume > threshold;
-          setIsMicActive(micActive);
+          // Get microphone data only if available
+          if (micAnalyzer && micData) {
+            micAnalyzer.getByteFrequencyData(micData);
+            
+            // Calculate microphone volume (0-1)
+            const micVolume = micData.reduce((a, b) => a + b, 0) / micData.length / 255;
+            const micActive = micVolume > threshold;
+            setIsMicActive(micActive);
+          } else {
+            setIsMicActive(false);
+          }
 
           // Handle system audio
           if (systemAnalyzer && sysData) {
@@ -68,7 +95,8 @@ export default function useAudioActivity(threshold = 0.05) {
             // Fallback: use a higher threshold for system audio simulation
             // This makes system audio less sensitive than microphone
             const systemThreshold = threshold * 2; // System audio needs to be louder
-            const micVolumeForSystem = micVolume;
+            const micVolumeForSystem = micAnalyzer && micData ? 
+              micData.reduce((a, b) => a + b, 0) / micData.length / 255 : 0;
             
             // System audio is only active when mic volume is significantly higher
             // This simulates that system audio (like music, videos) is usually louder than speech
@@ -109,5 +137,5 @@ export default function useAudioActivity(threshold = 0.05) {
     };
   }, [threshold]);
 
-  return { isMicActive, isSystemActive };
+  return { isMicActive, isSystemActive, hasMicrophonePermission };
 }

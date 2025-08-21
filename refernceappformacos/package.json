@@ -1,0 +1,34 @@
+{
+    "name": "mic-demo",
+    "productName": "Screen & Audio Recorder",
+    "version": "1.0.0",
+    "main": "main.js",
+    "author": "Your Name",
+    "scripts": {
+      "start": "electron .",
+      "pack": "electron-builder --dir",
+      "dist": "electron-builder"
+    },
+    "devDependencies": {
+      "electron": "^31.0.0",
+      "electron-builder": "^24.13.3"
+    },
+    "build": {
+      "appId": "com.cc.micdemo",
+      "mac": {
+        "category": "public.app-category.utilities",
+        "target": ["dmg", "zip"],
+        "hardenedRuntime": true,
+        "entitlements": "build/entitlements.mac.plist",
+        "entitlementsInherit": "build/entitlements.mac.plist",
+        "gatekeeperAssess": false,
+        "extendInfo": {
+            "NSMicrophoneUsageDescription": "This app records audio from your microphone for calls/recordings.",
+            "NSCameraUsageDescription": "Camera access is used for optional video input.",
+            "NSCameraUseContinuityCameraDeviceType": true,
+            "NSScreenCaptureUsageDescription": "This app needs screen capture access to record your screen."
+        }
+      }
+    }
+}
+  

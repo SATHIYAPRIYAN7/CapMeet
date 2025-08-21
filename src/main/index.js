@@ -173,7 +173,7 @@ app.whenReady().then(() => {
     callback({});
   });
 
-  // macOS-specific setup for microphone permissions
+  // macOS-specific setup for microphone and screen recording permissions
   if (process.platform === 'darwin') {
     console.log('Setting up macOS-specific permissions...');
     
@@ -181,23 +181,65 @@ app.whenReady().then(() => {
     const micPermission = systemPreferences.getMediaAccessStatus('microphone');
     console.log('Current microphone permission status:', micPermission);
     
-    // Request microphone permissions using systemPreferences if not already granted
-    if (micPermission !== 'granted') {
+    // Only request permission if not already granted and not previously requested
+    if (micPermission !== 'granted' && !global.microphonePermissionRequested) {
+      global.microphonePermissionRequested = true; // Prevent multiple requests
+      
       systemPreferences.askForMediaAccess('microphone').then((granted) => {
         console.log('Microphone permission requested and granted:', granted);
         
         // Store the permission status for future use
         if (granted) {
-          // Set a flag to remember permission was granted
           global.microphonePermissionGranted = true;
         }
       }).catch((error) => {
         console.error('Error requesting microphone permission:', error);
       });
-    } else {
+    } else if (micPermission === 'granted') {
       console.log('Microphone permission already granted');
       global.microphonePermissionGranted = true;
+    } else {
+      console.log('Microphone permission not granted, but already requested');
     }
+
+    // Check screen recording permission status (macOS specific)
+    try {
+      const screenStatus = systemPreferences.getMediaAccessStatus('screen');
+      console.log('[Screen permission status]:', screenStatus);
+      // Note: macOS will prompt for screen recording permission when first used
+      // This is handled by the setDisplayMediaRequestHandler above
+    } catch (err) {
+      console.error('Screen permission check error:', err);
+    }
+  }
+
+  // Set up display media request handler for screen capture (macOS specific)
+  if (process.platform === 'darwin') {
+    console.log('Setting up macOS display media request handler...');
+    
+    session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+      console.log('Display media request received:', request);
+      
+      // Get available screen sources
+      desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
+        if (sources && sources.length > 0) {
+          // Use the first available source for now
+          const source = sources[0];
+          console.log(`Using source: ${source.name} (${source.id})`);
+          
+          callback({ 
+            video: source, 
+            audio: 'loopback' // This enables system audio capture
+          });
+        } else {
+          console.log('No screen sources available');
+          callback({ video: false, audio: false });
+        }
+      }).catch((error) => {
+        console.error('Error in display media handler:', error);
+        callback({ video: false, audio: false });
+      });
+    }, { useSystemPicker: false });
   }
 
   // Set permission request handler (only once)
@@ -208,20 +250,25 @@ app.whenReady().then(() => {
       // Check if we already have permission or if it was previously granted
       if (process.platform === 'darwin') {
         const micPermission = systemPreferences.getMediaAccessStatus('microphone');
+        console.log('Permission handler - Current microphone permission status:', micPermission);
+        console.log('Permission handler - Global flag:', global.microphonePermissionGranted);
+        
         if (micPermission === 'granted' || global.microphonePermissionGranted) {
           console.log('Microphone permission already granted - allowing access');
           callback(true);
           return;
         }
+        
+        // If permission not granted, deny to prevent looping
+        console.log('Microphone permission not granted - denying to prevent looping');
+        console.log('User must grant permission through System Preferences first');
+        callback(false);
+        return;
       }
       
-      console.log('Microphone permission requested - granting');
+      // For non-macOS platforms, grant permission
+      console.log('Microphone permission requested - granting for non-macOS platform');
       callback(true);
-      
-      // Mark as granted for future requests
-      if (process.platform === 'darwin') {
-        global.microphonePermissionGranted = true;
-      }
     } else if (permission === 'media') {
       console.log('Media permission requested - granting for microphone access');
       callback(true);
@@ -329,13 +376,96 @@ app.whenReady().then(() => {
     try {
       const sources = await desktopCapturer.getSources({
         types: ['screen', 'window'],
-        thumbnailSize: { width: 0, height: 0 },
+        thumbnailSize: { width: 150, height: 150 },
         fetchWindowIcons: false
       });
-      return sources;
+      
+      // Map sources to include additional metadata
+      const mappedSources = sources.map(source => ({
+        id: source.id,
+        name: source.name,
+        type: source.display_id ? 'screen' : 'window',
+        display_id: source.display_id,
+        thumbnail: source.thumbnail ? source.thumbnail.toDataURL() : null
+      }));
+      
+      console.log('Available display sources:', mappedSources.length);
+      return mappedSources;
     } catch (error) {
       console.error('Error getting display sources:', error);
       throw error;
+    }
+  });
+
+  // Start source capture handler (for better source selection)
+  ipcMain.handle('start-source-capture', async (event, sourceId) => {
+    try {
+      const sources = await desktopCapturer.getSources({ 
+        types: ['screen', 'window']
+      });
+      
+      const source = sources.find(s => s.id === sourceId);
+      if (!source) {
+        throw new Error('Source not found');
+      }
+      
+      return {
+        id: source.id,
+        name: source.name,
+        type: source.display_id ? 'screen' : 'window',
+        display_id: source.display_id
+      };
+    } catch (error) {
+      console.error('Error starting source capture:', error);
+      throw error;
+    }
+  });
+
+  // Test screen capture permissions (for debugging)
+  ipcMain.handle('test-screen-capture', async () => {
+    try {
+      if (process.platform === 'darwin') {
+        console.log('Testing screen capture on macOS...');
+        
+        // Check if we can get sources
+        const sources = await desktopCapturer.getSources({ 
+          types: ['screen', 'window'],
+          thumbnailSize: { width: 100, height: 100 }
+        });
+        
+        console.log('Available sources:', sources.length);
+        sources.forEach((source, index) => {
+          console.log(`Source ${index}:`, {
+            id: source.id,
+            name: source.name,
+            type: source.display_id ? 'screen' : 'window'
+          });
+        });
+        
+        return {
+          success: true,
+          platform: 'darwin',
+          sourcesCount: sources.length,
+          sources: sources.map(s => ({
+            id: s.id,
+            name: s.name,
+            type: s.display_id ? 'screen' : 'window'
+          }))
+        };
+      } else {
+        return {
+          success: true,
+          platform: process.platform,
+          message: 'Screen capture test only available on macOS'
+        };
+      }
+    } catch (error) {
+      console.error('Screen capture test failed:', error);
+      return {
+        success: false,
+        error: error.message,
+        platform: process.platform
+      };
     }
   });
 
@@ -345,10 +475,22 @@ app.whenReady().then(() => {
       if (process.platform === 'darwin') {
         const micPermission = systemPreferences.getMediaAccessStatus('microphone');
         console.log('Microphone permission status checked:', micPermission);
+        
+        // Return cached status if available
+        if (global.microphonePermissionGranted) {
+          return {
+            status: 'granted',
+            isGranted: true,
+            platform: 'darwin',
+            cached: true
+          };
+        }
+        
         return {
           status: micPermission,
           isGranted: micPermission === 'granted',
-          platform: 'darwin'
+          platform: 'darwin',
+          cached: false
         };
       } else {
         // For other platforms, return a default status
@@ -373,7 +515,32 @@ app.whenReady().then(() => {
   ipcMain.handle('request-microphone-permission', async () => {
     try {
       if (process.platform === 'darwin') {
+        // Check if we already have permission
+        const currentStatus = systemPreferences.getMediaAccessStatus('microphone');
+        if (currentStatus === 'granted' || global.microphonePermissionGranted) {
+          console.log('Microphone permission already granted, no need to request');
+          return {
+            success: true,
+            granted: true,
+            status: 'granted',
+            alreadyGranted: true
+          };
+        }
+        
+        // Check if we've already requested permission
+        if (global.microphonePermissionRequested) {
+          console.log('Microphone permission already requested, checking current status');
+          return {
+            success: true,
+            granted: currentStatus === 'granted',
+            status: currentStatus,
+            alreadyRequested: true
+          };
+        }
+        
         console.log('Requesting microphone permission explicitly...');
+        global.microphonePermissionRequested = true;
+        
         const granted = await systemPreferences.askForMediaAccess('microphone');
         console.log('Microphone permission request result:', granted);
         
@@ -403,6 +570,66 @@ app.whenReady().then(() => {
     }
   });
 
+  // Reset microphone permission state (useful for testing or troubleshooting)
+  ipcMain.handle('reset-microphone-permission-state', () => {
+    try {
+      if (process.platform === 'darwin') {
+        console.log('Resetting microphone permission state...');
+        delete global.microphonePermissionGranted;
+        delete global.microphonePermissionRequested;
+        
+        const currentStatus = systemPreferences.getMediaAccessStatus('microphone');
+        console.log('Current microphone permission status after reset:', currentStatus);
+        
+        return {
+          success: true,
+          status: currentStatus,
+          message: 'Permission state reset successfully'
+        };
+      } else {
+        return {
+          success: false,
+          error: 'Permission reset only supported on macOS'
+        };
+      }
+    } catch (error) {
+      console.error('Error resetting microphone permission state:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  });
+
+  // Get current permission state for debugging
+  ipcMain.handle('get-microphone-permission-state', () => {
+    try {
+      if (process.platform === 'darwin') {
+        const currentStatus = systemPreferences.getMediaAccessStatus('microphone');
+        return {
+          success: true,
+          currentStatus,
+          globalGranted: global.microphonePermissionGranted || false,
+          globalRequested: global.microphonePermissionRequested || false,
+          platform: 'darwin'
+        };
+      } else {
+        return {
+          success: true,
+          currentStatus: 'unknown',
+          globalGranted: false,
+          globalRequested: false,
+          platform: process.platform
+        };
+      }
+    } catch (error) {
+      console.error('Error getting microphone permission state:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  });
 
 
   // File saving handler

@@ -16,6 +16,12 @@ const api = {
   getDisplayMedia: async (options) => {
     return await ipcRenderer.invoke('get-display-sources');
   },
+  startSourceCapture: async (sourceId) => {
+    return await ipcRenderer.invoke('start-source-capture', sourceId);
+  },
+  testScreenCapture: async () => {
+    return await ipcRenderer.invoke('test-screen-capture');
+  },
   // Recording overlay APIs
   showRecordingOverlay: () => ipcRenderer.invoke('show-recording-overlay'),
   hideRecordingOverlay: () => ipcRenderer.invoke('hide-recording-overlay'),
@@ -29,6 +35,8 @@ const api = {
   updateMicrophoneEnabled: (isEnabled) => ipcRenderer.invoke('update-microphone-enabled', { isEnabled }),
   checkMicrophonePermission: () => ipcRenderer.invoke('check-microphone-permission'),
   requestMicrophonePermission: () => ipcRenderer.invoke('request-microphone-permission'),
+  resetMicrophonePermissionState: () => ipcRenderer.invoke('reset-microphone-permission-state'),
+  getMicrophonePermissionState: () => ipcRenderer.invoke('get-microphone-permission-state'),
   onMicrophoneMuteToggle: (callback) => {
     ipcRenderer.on('microphone-mute-toggled', callback);
   },
