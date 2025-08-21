@@ -1,6 +1,11 @@
 {
   "name": "capmeet",
   "version": "0.1.0",
+  "description": "CapMeet - Desktop screen recording and meeting application built with Electron and React",
+  "author": {
+    "name": "CapMeet Team",
+    "email": "support@capmeet.com"
+  },
   "main": "./out/main/index.js",
   "scripts": {
     "start": "electron-vite preview",
@@ -59,5 +64,18 @@
     "terser": "^5.43.1",
     "tw-animate-css": "^1.3.6",
     "vite": "^7.0.6"
-  }
+  },
+  "homepage": "https://capmeet.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SATHIYAPRIYAN7/capmeet.git"
+  },
+  "keywords": [
+    "electron",
+    "screen-recording",
+    "meeting",
+    "desktop-app",
+    "react"
+  ],
+  "license": "MIT"
 }
