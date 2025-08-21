@@ -57,6 +57,8 @@ mac:
   provisioningProfile: null
   electronLanguages:
     - en
+  # CI-specific settings to prevent publishing
+  publish: null
 dmg:
   artifactName: ${name}-${version}-arm64.${ext}
   sign: false
@@ -69,3 +71,10 @@ asar: true
 removePackageScripts: true
 removePackageKeywords: true
 compression: maximum
+
+# Disable publishing - we don't want to publish to GitHub
+publish: null
+
+# Additional CI settings to prevent publishing attempts
+afterSign: null
+afterAllArtifactBuild: null
