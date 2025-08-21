@@ -30,39 +30,41 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
 
-# macOS ARM64 ONLY configuration (for GitHub Actions)
+# macOS Universal Build configuration (ARM64 + x64)
 mac:
   target:
     - target: dmg
       arch:
-        - arm64
+        - universal
     - target: zip
       arch:
-        - arm64
+        - universal
   category: public.app-category.productivity
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  hardenedRuntime: false
+  hardenedRuntime: true
   gatekeeperAssess: false
   notarize: false
   icon: resources/icon.png
-  artifactName: ${name}-${version}-arm64.${ext}
+  artifactName: ${name}-${version}-universal.${ext}
   extendInfo:
     NSMicrophoneUsageDescription: "This app records audio from your microphone for calls/recordings."
     NSCameraUsageDescription: "Camera access is used for optional video input."
     NSCameraUseContinuityCameraDeviceType: true
     NSScreenCaptureUsageDescription: "This app needs screen capture access to record your screen."
-  # Additional security settings to prevent "damaged app" error
+  # Universal build settings
   identity: null
   provisioningProfile: null
   electronLanguages:
     - en
-  # CI-specific settings to prevent publishing
-  publish: null
+  # Merge ASARs for universal build (reduces file size)
+  mergeASARs: true
+  # Single arch files that don't need to be universal
+  singleArchFiles: "**/*.{so,dylib}"
 dmg:
-  artifactName: ${name}-${version}-arm64.${ext}
+  artifactName: ${name}-${version}-universal.${ext}
   sign: false
-  # DMG specific settings
+  # DMG specific settings for universal build
   format: UDZO
 
 # Build settings
