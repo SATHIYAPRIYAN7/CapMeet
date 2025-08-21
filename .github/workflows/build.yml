@@ -97,4 +97,4 @@ jobs:
       with:
         name: mac-release-assets
         path: release-assets/
-        retention-days: 90 
+        retention-days: 1 

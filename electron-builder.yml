@@ -11,6 +11,8 @@ files:
   - '!node_modules/**/node_modules/**'  # Exclude nested node_modules
 asarUnpack:
  - resources/**
+
+# Windows configuration for local builds
 win:
   executableName: CapMeet
   icon: resources/icon.png
@@ -27,6 +29,8 @@ nsis:
   createStartMenuShortcut: true
   oneClick: false
   allowToChangeInstallationDirectory: true
+
+# macOS ARM64 ONLY configuration (for GitHub Actions)
 mac:
   target:
     - target: dmg
@@ -53,28 +57,15 @@ mac:
   provisioningProfile: null
   electronLanguages:
     - en
-  electronVersion: "37.2.5"
 dmg:
   artifactName: ${name}-${version}-arm64.${ext}
   sign: false
   # DMG specific settings
   format: UDZO
-  compressionLevel: 9
-linux:
-  target:
-    - AppImage
-    - snap
-    - deb
-  maintainer: capmeet@example.com
-  category: Utility
-  icon: resources/icon.png
-appImage:
-  artifactName: ${name}-${version}-${arch}.${ext}
+
+# Build settings
 npmRebuild: false
 asar: true
 removePackageScripts: true
 removePackageKeywords: true
-publish:
-  provider: generic
-  url: https://example.com/auto-updates
 compression: maximum
