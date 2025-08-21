@@ -38,19 +38,28 @@ mac:
   category: public.app-category.productivity
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  hardenedRuntime: true
+  hardenedRuntime: false
   gatekeeperAssess: false
   notarize: false
   icon: resources/icon.png
-  artifactName: ${name}-${version}-universal.${ext}
+  artifactName: ${name}-${version}-arm64.${ext}
   extendInfo:
     NSMicrophoneUsageDescription: "This app records audio from your microphone for calls/recordings."
     NSCameraUsageDescription: "Camera access is used for optional video input."
     NSCameraUseContinuityCameraDeviceType: true
     NSScreenCaptureUsageDescription: "This app needs screen capture access to record your screen."
+  # Additional security settings to prevent "damaged app" error
+  identity: null
+  provisioningProfile: null
+  electronLanguages:
+    - en
+  electronVersion: "37.2.5"
 dmg:
-  artifactName: ${name}-${version}-universal.${ext}
+  artifactName: ${name}-${version}-arm64.${ext}
   sign: false
+  # DMG specific settings
+  format: UDZO
+  compressionLevel: 9
 linux:
   target:
     - AppImage
