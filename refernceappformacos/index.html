@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Screen & Audio Recorder</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; media-src 'self' blob:;"/>
+  <style>
+    body { 
+      font-family: ui-sans-serif, system-ui, -apple-system; 
+      margin: 2rem; 
+      background: #f8f9fa;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .section {
+      background: white;
+      padding: 1.5rem;
+      margin: 1rem 0;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    button { 
+      padding: .8rem 1.5rem; 
+      font-size: 16px; 
+      margin: 0.5rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #007bff;
+      color: white;
+    }
+    .btn-primary:hover { background: #0056b3; }
+    .btn-danger {
+      background: #dc3545;
+      color: white;
+    }
+    .btn-danger:hover { background: #c82333; }
+    .btn-success {
+      background: #28a745;
+      color: white;
+    }
+    .btn-success:hover { background: #1e7e34; }
+    .log { 
+      margin-top: 1rem; 
+      padding: 1rem; 
+      background: #f6f7f8; 
+      border-radius: 8px; 
+      white-space: pre-wrap;
+      font-family: monospace;
+      font-size: 14px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .preview {
+      margin: 1rem 0;
+      text-align: center;
+    }
+    video {
+      max-width: 100%;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .controls {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .status {
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      font-weight: 500;
+    }
+    .status.recording {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .status.stopped {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    audio { display: block; margin-top: 1rem; }
+    
+    /* Audio Track Controls */
+    .audio-controls {
+      margin: 1rem 0;
+      padding: 1rem;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border: 1px solid #e9ecef;
+    }
+    
+    .audio-controls h4 {
+      margin: 0 0 1rem 0;
+      color: #495057;
+      font-size: 16px;
+    }
+    
+    .track-control {
+      display: flex;
+      align-items: center;
+      margin: 0.5rem 0;
+      padding: 0.5rem;
+      background: white;
+      border-radius: 6px;
+      border: 1px solid #dee2e6;
+    }
+    
+    .track-control input[type="checkbox"] {
+      margin-right: 0.75rem;
+      transform: scale(1.2);
+    }
+    
+    .track-control label {
+      font-weight: 500;
+      color: #495057;
+      cursor: pointer;
+      flex: 1;
+    }
+    
+    .audio-controls button {
+      margin: 0.5rem 0.5rem 0.5rem 0;
+      padding: 0.5rem 1rem;
+      font-size: 14px;
+    }
+    
+    .audio-controls button:first-of-type {
+      background: #6c757d;
+      color: white;
+    }
+    
+    .audio-controls button:last-of-type {
+      background: #17a2b8;
+      color: white;
+    }
+    
+    /* Screen Selection Styles */
+    .screen-selection {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      width: 100%;
+    }
+    
+    .screen-selection label {
+      font-weight: 500;
+      color: #495057;
+      margin-bottom: 0.25rem;
+    }
+    
+    .screen-selection select {
+      padding: 0.5rem;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      font-size: 14px;
+      background: white;
+      min-width: 300px;
+    }
+    
+    .screen-selection select:focus {
+      outline: none;
+      border-color: #007bff;
+      box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+    }
+    
+    .refresh-btn {
+      margin-left: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      font-size: 14px;
+    }
+    
+    .source-info {
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      background: #f8f9fa;
+      border-radius: 6px;
+      border: 1px solid #e9ecef;
+      font-size: 14px;
+      color: #6c757d;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Screen & Audio Recorder</h1>
+    
+    <div class="section">
+      <h2>Microphone Access</h2>
+      <p>Click to request microphone using <code>getUserMedia</code>.</p>
+      <button id="btn" class="btn-primary">Request Microphone</button>
+      <audio id="monitor" autoplay controls></audio>
+    </div>
+
+    <div class="section">
+      <h2>Screen Recording</h2>
+      <div class="controls">
+        <div class="screen-selection">
+          <label for="screenSelect">Select Screen/Window:</label>
+          <select id="screenSelect">
+            <option value="">Loading screens...</option>
+          </select>
+        </div>
+        <button id="selectScreen" class="btn-primary">Select Screen/Window</button>
+        <button id="startRecording" class="btn-primary" disabled>Start Recording</button>
+        <button id="stopRecording" class="btn-danger" disabled>Stop Recording</button>
+        <button id="downloadRecording" class="btn-success" disabled>Download Recording</button>
+        <button id="cleanupStream" class="btn-primary">Cleanup Stream</button>
+      </div>
+      <div id="status" class="status stopped">Not Recording</div>
+    </div>
+
+    <div class="section">
+      <h2>Preview</h2>
+      <div class="preview">
+        <video id="preview" autoplay muted></video>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Log</h2>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

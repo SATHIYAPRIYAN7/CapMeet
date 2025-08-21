@@ -8,7 +8,6 @@ files:
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!node_modules/electron-screen-recorder/**'  # Exclude this package
   - '!node_modules/**/node_modules/**'  # Exclude nested node_modules
 asarUnpack:
  - resources/**
@@ -32,19 +31,23 @@ mac:
   target:
     - target: dmg
       arch:
-        - universal
+        - arm64
     - target: zip
       arch:
-        - universal
+        - arm64
   category: public.app-category.productivity
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  extendInfo: build/Info.plist
-  hardenedRuntime: false
+  hardenedRuntime: true
   gatekeeperAssess: false
   notarize: false
   icon: resources/icon.png
   artifactName: ${name}-${version}-universal.${ext}
+  extendInfo:
+    NSMicrophoneUsageDescription: "This app records audio from your microphone for calls/recordings."
+    NSCameraUsageDescription: "Camera access is used for optional video input."
+    NSCameraUseContinuityCameraDeviceType: true
+    NSScreenCaptureUsageDescription: "This app needs screen capture access to record your screen."
 dmg:
   artifactName: ${name}-${version}-universal.${ext}
   sign: false
